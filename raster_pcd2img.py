@@ -102,10 +102,12 @@ def rasterize_3dto2D_torch(
         max_coord = torch.tensor([max_xyz[0], max_xyz[1]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'y':
         coords = sorted_points[:, [0, 2]]
+        coords[:,1] = coords[:,1] * -1
         min_coord = torch.tensor([min_xyz[0], min_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
         max_coord = torch.tensor([max_xyz[0], max_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'x':
         coords = sorted_points[:, [1, 2]]
+        coords[:,1] = coords[:,1] * -1
         min_coord = torch.tensor([min_xyz[1], min_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
         max_coord = torch.tensor([max_xyz[1], max_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     
@@ -200,10 +202,12 @@ def rasterize_3dto2D_numpy(
         max_coord = np.array([max_xyz[0], max_xyz[1]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'y':
         coords = sorted_points[:, [0, 2]]
+        coords[:,1] = coords[:,1] * -1
         min_coord = np.array([min_xyz[0], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[0], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'x':
         coords = sorted_points[:, [1, 2]]
+        coords[:,1] = coords[:,1] * -1
         min_coord = np.array([min_xyz[1], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[1], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     
