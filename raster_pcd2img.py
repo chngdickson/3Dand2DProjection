@@ -41,7 +41,7 @@ def rasterize_3dto2D(
             highest_first=highest_first,
             depth_weighting=depth_weighting
         )
-        return filtered_pointcloud.detach().cpu(), raster_image.detach().cpu(), raster_filtered_img.detach().cpu()
+        return filtered_pointcloud.detach().cpu(), raster_image.detach().cpu().numpy(), raster_filtered_img.detach().cpu().numpy()
     elif isinstance(pointcloud, np.ndarray):
         filtered_pointcloud, raster_image, raster_filtered_img =  rasterize_3dto2D_numpy(
             pointcloud=pointcloud,
@@ -143,8 +143,8 @@ def rasterize_3dto2D_torch(
     # Apply depth weighting if enabled
     if depth_weighting:
         cmap = plt.get_cmap('rainbow')
-        raster_image = torch.zeros((H, W, 3), dtype=dtype, device=device)
-        raster_filtered_img = torch.zeros((H, W, 3), dtype=dtype, device=device)
+        raster_image = torch.zeros((H, W, 3), dtype=torch.uint8, device=device)
+        raster_filtered_img = torch.zeros((H, W, 3), dtype=torch.uint8, device=device)
         
         
         # --- Filter points within bounds ---
@@ -160,7 +160,7 @@ def rasterize_3dto2D_torch(
         _ ,unique_indices = torch.unique(v_valid * W + u_valid, return_inverse=True, return_counts=False, dim=0)
         u_valid, v_valid = u_valid[unique_indices], v_valid[unique_indices]
         raster_image[v_valid, u_valid] = torch.tensor(
-                cmap(norm_depth_valid[unique_indices].detach().cpu().numpy())[:, :3], dtype=dtype, device=device
+                cmap(norm_depth_valid[unique_indices].detach().cpu().numpy())[:, :3]*255, dtype=torch.uint8, device=device
             )
         
         # --- Vectorized occlusion handling within bounds and mask---
@@ -171,7 +171,7 @@ def rasterize_3dto2D_torch(
             _, unique_indices = torch.unique(v_valid_mask * W + u_valid_mask, return_inverse=True, return_counts=False, dim=0)
             u_valid_mask, v_valid_mask = u_valid_mask[unique_indices], v_valid_mask[unique_indices]
             raster_filtered_img[v_valid_mask, u_valid_mask] = torch.tensor(
-                cmap(norm_depth_valid_mask[unique_indices].detach().cpu().numpy())[:, :3], dtype=dtype, device=device
+                cmap(norm_depth_valid_mask[unique_indices].detach().cpu().numpy())[:, :3] *255, dtype=torch.uint8, device=device
             )
     else:
         # Binary version (original behavior)
@@ -269,8 +269,8 @@ def rasterize_3dto2D_numpy(
     # Apply depth weighting if enabled
     if depth_weighting:
         cmap = plt.get_cmap('rainbow')
-        raster_image = np.zeros((H, W, 3), dtype=np.float32)
-        raster_filtered_img = np.zeros((H, W,3), dtype=np.float32)
+        raster_image = np.zeros((H, W, 3), dtype=np.uint8)
+        raster_filtered_img = np.zeros((H, W,3), dtype=np.uint8)
         
         
         # --- Filter points within bounds ---
@@ -283,28 +283,36 @@ def rasterize_3dto2D_numpy(
         
         # --- Vectorized occlusion handling within bounds---
         pixel_keys = v_valid * W + u_valid
-        # Sort by highest first
+        
+        # 1. Sort by highest first
         sort_order = np.lexsort((pixel_keys, -norm_depth_valid)) 
         u_valid, v_valid = u_valid[sort_order], v_valid[sort_order]
         norm_depth_valid = norm_depth_valid[sort_order]
-        # Find the first occurence of each pixel
+        
+        # 2. Find the first occurence of each pixel
         _, unique_indices = np.unique(v_valid * W + u_valid, return_index=True)
         u_valid, v_valid = u_valid[unique_indices], v_valid[unique_indices]
-        raster_image[v_valid, u_valid] = cmap(norm_depth_valid[unique_indices])[:, :3]
+        
+        # 3. Finally Plot the colors
+        raster_image[v_valid, u_valid] = cmap(norm_depth_valid[unique_indices])[:, :3] * 255
         
         # --- Vectorized occlusion handling within bounds and mask---
         if mask_2d is None:
             raster_filtered_img = raster_image.copy()
         else:
             pixel_keys = v_valid_mask * W + u_valid_mask
-            # Sort by highest first
+            
+            # 1. Sort by highest first
             sort_order = np.lexsort((pixel_keys, -norm_depth_valid_mask)) 
             u_valid_mask, v_valid_mask = u_valid_mask[sort_order], v_valid_mask[sort_order]
             norm_depth_valid_mask = norm_depth_valid_mask[sort_order]
-            # Find the first occurence of each pixel
+            
+            # 2. Find the first occurence of each pixel
             _, unique_indices = np.unique(v_valid_mask * W + u_valid_mask, return_index=True)
             u_valid_mask, v_valid_mask = u_valid_mask[unique_indices], v_valid_mask[unique_indices]
-            raster_filtered_img[v_valid_mask, u_valid_mask] = cmap(norm_depth_valid_mask[unique_indices])[:, :3]
+            
+            # 3. Finally Plot the colors
+            raster_filtered_img[v_valid_mask, u_valid_mask] = cmap(norm_depth_valid_mask[unique_indices])[:, :3] * 255
     else:
         # Binary version (original behavior)
         raster_image = np.zeros((H, W), dtype=np.bool)
