@@ -165,7 +165,7 @@ def rasterize_3dto2D_torch(
         
         # --- Vectorized occlusion handling within bounds and mask---
         if mask_2d is None:
-            raster_filtered_img = raster_image.copy()
+            raster_filtered_img = raster_image.clone()
         else:
             # Find the first occurence of each pixel
             _, unique_indices = torch.unique(v_valid_mask * W + u_valid_mask, return_inverse=True, return_counts=False, dim=0)
@@ -179,11 +179,13 @@ def rasterize_3dto2D_torch(
         raster_filtered_img = torch.zeros((H, W), dtype=torch.bool, device=device)
         raster_image[v[valid_within_bounds], u[valid_within_bounds]] = True
         if mask_2d is None:
-            raster_filtered_img = raster_image.copy()
+            raster_filtered_img = raster_image.clone()
         else:
             raster_filtered_img[v[valid_within_bounds_n_mask], u[valid_within_bounds_n_mask]] = True
     
-    
+    del u_valid_mask, v_valid_mask, u_valid, v_valid, valid_within_bounds, valid_within_bounds_n_mask
+    del u, v, unique_indices, coords_normalized, norm_depth
+    del depth, min_coord, max_coord, xyz, coords
     return filtered_pointcloud, raster_image, raster_filtered_img
 
 
