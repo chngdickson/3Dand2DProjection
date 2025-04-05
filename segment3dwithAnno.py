@@ -24,8 +24,6 @@ def segment3D_With2DMask(pcd, mask_2d, K, extrinsic):
     mask_2d_v2 = torch.zeros(mask_2d.shape).to(device).bool()
     mask_2d_v2[pcd_uv[:,1], pcd_uv[:,0]] = True
     
-    print("are we the same?",torch.allclose(mask_2d_v2.bool(), mask_2d.bool()))
-    print(mask_2d.shape, mask_2d_v2.shape)
     return pcd_within_bounds, mask_2d_v2#, test_ransac
 
 def segment3D_with2DAnno(pcd, segment2d_anno, im_w, im_h, K, extrinsic):

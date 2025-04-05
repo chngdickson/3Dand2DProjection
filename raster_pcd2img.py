@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from copy import deepcopy
-
+import matplotlib.pyplot as plt
 def rasterize_3dto2D(
     pointcloud, 
     mask_2d: torch.Tensor=None, 
@@ -58,17 +58,35 @@ def rasterize_3dto2D(
         assert NotImplementedError
     
 def rasterize_3dto2D_torch(
-    pointcloud: torch.Tensor, 
-    mask_2d: torch.Tensor=None, 
+    pointcloud, 
+    mask_2d: np.ndarray=None, 
     img_shape: tuple=None,
     min_xyz: tuple=None,  # (min_x, min_y, min_z)
     max_xyz: tuple=None,  # (max_x, max_y, max_z)
     axis='z', 
     highest_first=True,
-    depth_weighting=True  
+    depth_weighting=True
 ):
     """
-    Wrapper function
+    Rasterize point cloud with explicit bounds and depth-based weighting.
+    Higher values → Red
+    Mid values → Blue
+    Lowest values → Green
+    
+    Args:
+        pointcloud: (N, 3) array of 3D points.
+        mask_2d: (H, W) binary mask (True = keep point).
+        img_shape: (H, W) if mask_2d is not None.
+        min_xyz: Tuple of (min_x, min_y, min_z) bounds.
+        max_xyz: Tuple of (max_x, max_y, max_z) bounds.
+        axis: 'xy', 'xz', or 'yz' (projection plane).
+        highest_first: If True, prioritize farthest points; else closest.
+        depth_weighting: If True, farther points have lower values.
+    
+    Returns:
+        filtered_pointcloud: (M, 3) array (M <= N).
+        raster_image: (H, W) binary | (H, W, 3) RGB image (Red=High, Blue=Mid, Green=Low).
+        raster_filtered_img: (H, W) binary of masked points | (H, W, 3) RGB image of masked points.
     """
     assert not(mask_2d is None and img_shape is None), "mask_2d or img_shape must be present for rasterization"
     device = pointcloud.device
@@ -79,71 +97,95 @@ def rasterize_3dto2D_torch(
             mask_2d = torch.tensor(mask_2d, dtype=torch.bool, device=device)
     else:
         H, W = img_shape
-        mask_2d = torch.ones((H, W), dtype=torch.bool)
     
-    # --- Step 1: Sort points by depth (highest or lowest first) ---
+    xyz = pointcloud[:,:3]
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
+        coords = xyz[:, :2]
+        min_coord = torch.tensor([min_xyz[0], min_xyz[1]]) if min_xyz is not None else coords.min(dim=0)[0]
+        max_coord = torch.tensor([max_xyz[0], max_xyz[1]]) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'y':
         depth = pointcloud[:, 1]  # Y-axis for XZ projection
+        coords = xyz[:, [0, 2]]
+        coords[:,1] = coords[:,1] * -1
+        min_coord = torch.tensor([min_xyz[0], min_xyz[2]]) if min_xyz is not None else coords.min(dim=0)[0]
+        max_coord = torch.tensor([max_xyz[0], max_xyz[2]]) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'x':
         depth = pointcloud[:, 0]  # X-axis for YZ projection
+        coords = xyz[:, [1, 2]]
+        coords[:,1] = coords[:,1] * -1
+        min_coord = torch.tensor([min_xyz[1], min_xyz[2]]) if min_xyz is not None else coords.min(dim=0)[0]
+        max_coord = torch.tensor([max_xyz[1], max_xyz[2]]) if max_xyz is not None else coords.max(dim=0)[0]
     else:
         raise ValueError("axis must be 'x', 'y', or 'z'")
 
-    # Sort indices by depth
-    sorted_indices = torch.argsort(depth, descending=highest_first)
-    sorted_points = pointcloud[sorted_indices]
-    
-    # --- Step 2: Rasterize using explicit bounds ---
-    if axis == 'z':
-        coords = sorted_points[:, :2]
-        min_coord = torch.tensor([min_xyz[0], min_xyz[1]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
-        max_coord = torch.tensor([max_xyz[0], max_xyz[1]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
-    elif axis == 'y':
-        coords = sorted_points[:, [0, 2]]
-        coords[:,1] = coords[:,1] * -1
-        min_coord = torch.tensor([min_xyz[0], min_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
-        max_coord = torch.tensor([max_xyz[0], max_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
-    elif axis == 'x':
-        coords = sorted_points[:, [1, 2]]
-        coords[:,1] = coords[:,1] * -1
-        min_coord = torch.tensor([min_xyz[1], min_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
-        max_coord = torch.tensor([max_xyz[1], max_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
-    
-    # Normalize coordinates to [0, 1] using bounds
+    # Normalize to [0, 1] 
     coords_normalized = (coords - min_coord) / (max_coord - min_coord + 1e-6)
+    norm_depth = (depth - depth.min()) / (depth.max() - depth.min() + 1e-6)
+    if highest_first:
+        norm_depth = 1.0 - norm_depth
     
     # Scale to mask dimensions and round to integer indices
     u = (coords_normalized[:, 0] * (W - 1)).long()
     v = (coords_normalized[:, 1] * (H - 1)).long()
     
     # --- Step 3: Filter points using the mask ---
-    within_bounds = (u >= 0) & (u < W) & (v >= 0) & (v < H)
-    filter_mask = torch.zeros_like(u, dtype=torch.bool)
-    filter_mask[within_bounds] = mask_2d[v[within_bounds], u[within_bounds]]
-    valid_ind_sorted = filter_mask.nonzero().squeeze(1)
-    valid_ind_unsorted = sorted_indices[filter_mask.nonzero().squeeze(1)]
-
+    # Raster_filtered use sorted, 
+    valid_within_bounds = (0 <= u) & (u < W) & (0 <= v) & (v < H)
+    if mask_2d is None:
+        valid_within_bounds_n_mask = valid_within_bounds.nonzero().squeeze(1)
+    else:
+        valid_within_bounds_n_mask = torch.zeros_like(u, dtype=torch.bool)
+        valid_within_bounds_n_mask[valid_within_bounds.nonzero().squeeze(1)] = mask_2d[v[valid_within_bounds],u[valid_within_bounds]]
+        valid_within_bounds_n_mask = valid_within_bounds_n_mask.nonzero().squeeze(1)
+    
+    filtered_pointcloud = pointcloud[valid_within_bounds_n_mask]
     # Apply depth weighting if enabled
     if depth_weighting:
-        raster_image = torch.zeros((H, W), dtype=dtype, device=device)
-        raster_filtered_img = torch.zeros((H, W), dtype=dtype, device=device)
-        norm_depth = 1 - (depth - depth.min()) / (depth.max() - depth.min() + 1e-6)
-        norm_depth = 1 - norm_depth if highest_first else norm_depth
-        raster_image[v[within_bounds], u[within_bounds]] = norm_depth[within_bounds]
-        raster_filtered_img[v[valid_ind_sorted], u[valid_ind_sorted]] = norm_depth[valid_ind_sorted]
+        cmap = plt.get_cmap('rainbow')
+        raster_image = torch.zeros((H, W, 3), dtype=dtype, device=device)
+        raster_filtered_img = torch.zeros((H, W, 3), dtype=dtype, device=device)
+        
+        
+        # --- Filter points within bounds ---
+        u_valid, v_valid = u[valid_within_bounds], v[valid_within_bounds]
+        norm_depth_valid = norm_depth[valid_within_bounds]
+        
+        # --- Filter points within bounds and 2dMask ---
+        u_valid_mask, v_valid_mask = u[valid_within_bounds_n_mask], v[valid_within_bounds_n_mask]
+        norm_depth_valid_mask = norm_depth[valid_within_bounds_n_mask]
+        
+        # --- Vectorized occlusion handling within bounds---
+        # Sort by highest first        
+        _ ,unique_indices = torch.unique(v_valid * W + u_valid, return_inverse=True, return_counts=False, dim=0)
+        u_valid, v_valid = u_valid[unique_indices], v_valid[unique_indices]
+        raster_image[v_valid, u_valid] = torch.tensor(
+                cmap(norm_depth_valid[unique_indices].detach().cpu().numpy())[:, :3], dtype=dtype, device=device
+            )
+        
+        # --- Vectorized occlusion handling within bounds and mask---
+        if mask_2d is None:
+            raster_filtered_img = raster_image.copy()
+        else:
+            # Find the first occurence of each pixel
+            _, unique_indices = torch.unique(v_valid_mask * W + u_valid_mask, return_inverse=True, return_counts=False, dim=0)
+            u_valid_mask, v_valid_mask = u_valid_mask[unique_indices], v_valid_mask[unique_indices]
+            raster_filtered_img[v_valid_mask, u_valid_mask] = torch.tensor(
+                cmap(norm_depth_valid_mask[unique_indices].detach().cpu().numpy())[:, :3], dtype=dtype, device=device
+            )
     else:
         # Binary version (original behavior)
         raster_image = torch.zeros((H, W), dtype=torch.bool, device=device)
         raster_filtered_img = torch.zeros((H, W), dtype=torch.bool, device=device)
-        raster_image[v[within_bounds], u[within_bounds]] = True
-        raster_filtered_img[v[valid_ind_sorted], u[valid_ind_sorted]] = True
+        raster_image[v[valid_within_bounds], u[valid_within_bounds]] = True
+        if mask_2d is None:
+            raster_filtered_img = raster_image.copy()
+        else:
+            raster_filtered_img[v[valid_within_bounds_n_mask], u[valid_within_bounds_n_mask]] = True
     
-    # Get indices of filtered points
-    filtered_pointcloud = pointcloud[valid_ind_unsorted]
     
     return filtered_pointcloud, raster_image, raster_filtered_img
+
 
 def rasterize_3dto2D_numpy(
     pointcloud, 
@@ -153,15 +195,18 @@ def rasterize_3dto2D_numpy(
     max_xyz: tuple=None,  # (max_x, max_y, max_z)
     axis='z', 
     highest_first=True,
-    depth_weighting=True  
+    depth_weighting=True
 ):
     """
     Rasterize point cloud with explicit bounds and depth-based weighting.
+    Higher values → Red
+    Mid values → Blue
+    Lowest values → Green
     
     Args:
         pointcloud: (N, 3) array of 3D points.
         mask_2d: (H, W) binary mask (True = keep point).
-        img_shape: (H, W) if mask_2d is not None
+        img_shape: (H, W) if mask_2d is not None.
         min_xyz: Tuple of (min_x, min_y, min_z) bounds.
         max_xyz: Tuple of (max_x, max_y, max_z) bounds.
         axis: 'xy', 'xz', or 'yz' (projection plane).
@@ -170,82 +215,106 @@ def rasterize_3dto2D_numpy(
     
     Returns:
         filtered_pointcloud: (M, 3) array (M <= N).
-        raster_image: (H, W) float image with depth-weighted values (0-1).
-        raster_filtered_img: (H, W) float image of masked points with depth weighting.
+        raster_image: (H, W) binary | (H, W, 3) RGB image (Red=High, Blue=Mid, Green=Low).
+        raster_filtered_img: (H, W) binary of masked points | (H, W, 3) RGB image of masked points.
     """
     assert not(mask_2d is None and img_shape is None), "mask_2d or img_shape must be present for rasterization"
     if mask_2d is not None:
         H, W = mask_2d.shape
     else:
-        H,W = img_shape
-        mask_2d = np.ones((H,W))
+        H, W = img_shape
     
-    # --- Step 1: Sort points by depth (highest or lowest first) ---
+    xyz = pointcloud[:,:3]
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
-    elif axis == 'y':
-        depth = pointcloud[:, 1]  # Y-axis for XZ projection
-    elif axis == 'x':
-        depth = pointcloud[:, 0]  # X-axis for YZ projection
-    else:
-        raise ValueError("axis must be 'x', 'y', or 'z'")
-
-    
-    # Sort indices by depth
-    sorted_indices = np.argsort(depth)[::-1] if highest_first else np.argsort(depth)
-    sorted_points = pointcloud[sorted_indices]
-    
-    # --- Step 2: Rasterize using explicit bounds ---
-    if axis == 'z':
-        coords = sorted_points[:, :2]
+        coords = xyz[:, :2]
         min_coord = np.array([min_xyz[0], min_xyz[1]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[0], max_xyz[1]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'y':
-        coords = sorted_points[:, [0, 2]]
+        depth = pointcloud[:, 1]  # Y-axis for XZ projection
         coords[:,1] = coords[:,1] * -1
         min_coord = np.array([min_xyz[0], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[0], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'x':
-        coords = sorted_points[:, [1, 2]]
+        depth = pointcloud[:, 0]  # X-axis for YZ projection
         coords[:,1] = coords[:,1] * -1
         min_coord = np.array([min_xyz[1], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[1], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
-    
-    # Normalize coordinates to [0, 1] using bounds
+    else:
+        raise ValueError("axis must be 'x', 'y', or 'z'")
+
+    # Normalize to [0, 1] 
     coords_normalized = (coords - min_coord) / (max_coord - min_coord + 1e-6)
+    norm_depth = (depth - depth.min()) / (depth.max() - depth.min() + 1e-6)
+    if highest_first:
+        norm_depth = 1.0 - norm_depth
     
     # Scale to mask dimensions and round to integer indices
     u = (coords_normalized[:, 0] * (W - 1)).astype(int)
     v = (coords_normalized[:, 1] * (H - 1)).astype(int)
     
     # --- Step 3: Filter points using the mask ---
-    within_bounds = (0 <= u) & (u < W) & (0 <= v) & (v < H)
-    filter_mask = np.zeros_like(u)
-    filter_mask[within_bounds.nonzero()] = mask_2d[v[within_bounds],u[within_bounds]]
-    valid_ind_sorted = filter_mask.nonzero()[0]
-    valid_ind_unsorted = sorted_indices[filter_mask.nonzero()[0]]
-
+    # Raster_filtered use sorted, 
+    valid_within_bounds = (0 <= u) & (u < W) & (0 <= v) & (v < H)
+    if mask_2d is None:
+        valid_within_bounds_n_mask = valid_within_bounds.nonzero()[0]
+    else:
+        valid_within_bounds_n_mask = np.zeros_like(u)
+        valid_within_bounds_n_mask[valid_within_bounds.nonzero()] = mask_2d[v[valid_within_bounds],u[valid_within_bounds]]
+        valid_within_bounds_n_mask = valid_within_bounds_n_mask.nonzero()[0]
+    
+    filtered_pointcloud = pointcloud[valid_within_bounds_n_mask]
     # Apply depth weighting if enabled
     if depth_weighting:
-        raster_image = np.zeros((H, W), dtype=np.float32)
-        raster_filtered_img = np.zeros((H, W), dtype=np.float32)
-        norm_depth = 1 - (depth - depth.min()) / (depth.max() - depth.min() + 1e-6)
-        norm_depth = 1-norm_depth if highest_first else norm_depth
-        raster_image[v[within_bounds], u[within_bounds]] = norm_depth[within_bounds]
-        raster_filtered_img[v[valid_ind_sorted], u[valid_ind_sorted]] = norm_depth[valid_ind_sorted]
+        cmap = plt.get_cmap('rainbow')
+        raster_image = np.zeros((H, W, 3), dtype=np.float32)
+        raster_filtered_img = np.zeros((H, W,3), dtype=np.float32)
+        
+        
+        # --- Filter points within bounds ---
+        u_valid, v_valid = u[valid_within_bounds], v[valid_within_bounds]
+        norm_depth_valid = norm_depth[valid_within_bounds]
+        
+        # --- Filter points within bounds and 2dMask ---
+        u_valid_mask, v_valid_mask = u[valid_within_bounds_n_mask], v[valid_within_bounds_n_mask]
+        norm_depth_valid_mask = norm_depth[valid_within_bounds_n_mask]
+        
+        # --- Vectorized occlusion handling within bounds---
+        pixel_keys = v_valid * W + u_valid
+        # Sort by highest first
+        sort_order = np.lexsort((pixel_keys, -norm_depth_valid)) 
+        u_valid, v_valid = u_valid[sort_order], v_valid[sort_order]
+        norm_depth_valid = norm_depth_valid[sort_order]
+        # Find the first occurence of each pixel
+        _, unique_indices = np.unique(v_valid * W + u_valid, return_index=True)
+        u_valid, v_valid = u_valid[unique_indices], v_valid[unique_indices]
+        raster_image[v_valid, u_valid] = cmap(norm_depth_valid[unique_indices])[:, :3]
+        
+        # --- Vectorized occlusion handling within bounds and mask---
+        if mask_2d is None:
+            raster_filtered_img = raster_image.copy()
+        else:
+            pixel_keys = v_valid_mask * W + u_valid_mask
+            # Sort by highest first
+            sort_order = np.lexsort((pixel_keys, -norm_depth_valid_mask)) 
+            u_valid_mask, v_valid_mask = u_valid_mask[sort_order], v_valid_mask[sort_order]
+            norm_depth_valid_mask = norm_depth_valid_mask[sort_order]
+            # Find the first occurence of each pixel
+            _, unique_indices = np.unique(v_valid_mask * W + u_valid_mask, return_index=True)
+            u_valid_mask, v_valid_mask = u_valid_mask[unique_indices], v_valid_mask[unique_indices]
+            raster_filtered_img[v_valid_mask, u_valid_mask] = cmap(norm_depth_valid_mask[unique_indices])[:, :3]
     else:
         # Binary version (original behavior)
         raster_image = np.zeros((H, W), dtype=np.bool)
         raster_filtered_img = np.zeros((H, W), dtype=np.bool)
-        raster_image[v[within_bounds], u[within_bounds]] = True
-        raster_filtered_img[v[valid_ind_sorted], u[valid_ind_sorted]] = True
+        raster_image[v[valid_within_bounds], u[valid_within_bounds]] = True
+        if mask_2d is None:
+            raster_filtered_img = raster_image.copy()
+        else:
+            raster_filtered_img[v[valid_within_bounds_n_mask], u[valid_within_bounds_n_mask]] = True
     
-
-    # Get indices of filtered points
-    filtered_pointcloud = pointcloud[valid_ind_unsorted]
     
     return filtered_pointcloud, raster_image, raster_filtered_img
-
 if __name__ == "__main__":
     import open3d as o3d
     import matplotlib.pyplot as plt
@@ -283,9 +352,9 @@ if __name__ == "__main__":
         depth_weighting=True
     )
     
-    # Usage 3: Not Using min_xyz
+    # # Usage 3: Not Using min_xyz
     filtered_pc_highest, raster_img, raster_img_filtered = rasterize_3dto2D(
-        np.array(pcd.points), 
+        torch.tensor(np.array(pcd.points)), 
         img_shape=(H,W),
         axis='z',
         highest_first=False,
