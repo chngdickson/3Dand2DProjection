@@ -235,13 +235,13 @@ def rasterize_3dto2D_numpy(
     elif axis == 'y':
         depth = pointcloud[:, 1]  # Y-axis for XZ projection
         coords = xyz[:, [0, 2]]
-        coords[:,1] = xyz[:,1] * -1
+        coords[:,1] = coords[:,1] * -1
         min_coord = np.array([min_xyz[0], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[0], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'x':
         depth = pointcloud[:, 0]  # X-axis for YZ projection
         coords = xyz[:, [1, 2]]
-        coords[:,1] = xyz[:,1] * -1
+        coords[:,1] = coords[:,1]  * -1
         min_coord = np.array([min_xyz[1], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[1], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     else:
@@ -272,7 +272,7 @@ def rasterize_3dto2D_numpy(
     if depth_weighting:
         cmap = plt.get_cmap('rainbow')
         raster_image = np.zeros((H, W, 3), dtype=np.uint8)
-        raster_filtered_img = np.zeros((H, W,3), dtype=np.uint8)
+        raster_filtered_img = np.zeros((H, W, 3), dtype=np.uint8)
         
         
         # --- Filter points within bounds ---
@@ -325,8 +325,10 @@ def rasterize_3dto2D_numpy(
         else:
             raster_filtered_img[v[valid_within_bounds_n_mask], u[valid_within_bounds_n_mask]] = True
     
-    
     return filtered_pointcloud, raster_image, raster_filtered_img
+
+
+
 if __name__ == "__main__":
     import open3d as o3d
     import matplotlib.pyplot as plt
