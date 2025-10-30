@@ -355,6 +355,7 @@ def rasterize_3dto2D_numpy(
         else:
             raster_filtered_img[v[valid_within_bounds_n_mask], u[valid_within_bounds_n_mask]] = True
         raster_image = raster_image.astype(np.uint8)*255
+        raster_filtered_img = raster_image.astype(np.uint8)*255
     return filtered_pointcloud, raster_image, raster_filtered_img
 
 
