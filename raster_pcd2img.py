@@ -347,8 +347,8 @@ def rasterize_3dto2D_numpy(
             raster_filtered_img[v_valid_mask, u_valid_mask] = cmap(norm_depth_valid_mask[unique_indices])[:, :3] * 255
     else:
         # Binary version (original behavior)
-        raster_image = np.zeros((H, W), dtype=np.bool)
-        raster_filtered_img = np.zeros((H, W), dtype=np.bool)
+        raster_image = np.zeros((H, W), dtype=np.bool_)
+        raster_filtered_img = np.zeros((H, W), dtype=np.bool_)
         raster_image[v[valid_within_bounds], u[valid_within_bounds]] = True
         if mask_2d is None:
             raster_filtered_img = raster_image.copy()
