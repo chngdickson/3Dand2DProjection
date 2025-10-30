@@ -107,6 +107,7 @@ def rasterize_3dto2D_torch(
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
         coords = xyz[:, :2]
+        coords[:,1] = coords[:,1] * -1
         min_coord = torch.tensor([min_xyz[0], min_xyz[1]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
         max_coord = torch.tensor([max_xyz[0], max_xyz[1]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'y':
