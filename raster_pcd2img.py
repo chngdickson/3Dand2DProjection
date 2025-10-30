@@ -247,6 +247,7 @@ def rasterize_3dto2D_numpy(
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
         coords = xyz[:, :2]
+        coords[:,1] = coords[:,1] * -1
         min_coord = np.array([min_xyz[0], min_xyz[1]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[0], max_xyz[1]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'y':
