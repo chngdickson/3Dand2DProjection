@@ -93,7 +93,7 @@ def rasterize_3dto2D_torch(
         raster_image: (H, W) binary | (H, W, 3) RGB image (Red=High, Blue=Mid, Green=Low).
         raster_filtered_img: (H, W) binary of masked points | (H, W, 3) RGB image of masked points.
     """
-    assert not(mask_2d is None and img_shape is None), "mask_2d or img_shape must be present for rasterization"
+    assert not(mask_2d is None and img_shape is None and stepsize is None), "[mask_2d or img_shape or stepsize] must be present for rasterization"
     device = pointcloud.device
     dtype = pointcloud.dtype
     # if mask_2d is not None:
@@ -240,7 +240,7 @@ def rasterize_3dto2D_numpy(
         raster_image: (H, W) binary | (H, W, 3) RGB image (Red=High, Blue=Mid, Green=Low).
         raster_filtered_img: (H, W) binary of masked points | (H, W, 3) RGB image of masked points.
     """
-    assert not(mask_2d is None and img_shape is None), "mask_2d or img_shape must be present for rasterization"
+    assert not(mask_2d is None and img_shape is None and stepsize is None), "[mask_2d or img_shape or stepsize] must be present for rasterization"
 
     xyz = pointcloud[:,:3]
     if axis == 'z':
