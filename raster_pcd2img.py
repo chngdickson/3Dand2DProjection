@@ -125,8 +125,8 @@ def rasterize_3dto2D_torch(
         raise ValueError("axis must be 'x', 'y', or 'z'")
 
     if stepsize is not None:
-        H = round((float(max_coord[0])-float(min_coord[0]))/stepsize)
-        W = round((float(max_coord[1])-float(min_coord[1]))/stepsize)
+        W = round((float(max_coord[0])-float(min_coord[0]))/stepsize)+1
+        H = round((float(max_coord[1])-float(min_coord[1]))/stepsize)+1
         if mask_2d is not None:
             if (H,W) != mask_2d.shape:
                 raise ValueError("Your stepsize H,W must be the same size as your masked shape")
@@ -264,8 +264,8 @@ def rasterize_3dto2D_numpy(
         raise ValueError("axis must be 'x', 'y', or 'z'")
     
     if stepsize is not None:
-        H = round((max_coord[0]-min_coord[0])/stepsize)
-        W = round((max_coord[1]-min_coord[1])/stepsize)
+        W = round((max_coord[0]-min_coord[0])/stepsize)+1
+        H = round((max_coord[1]-min_coord[1])/stepsize)+1
         if mask_2d is not None:
             if (H,W) != mask_2d.shape:
                 raise ValueError("Your stepsize H,W must be the same size as your masked shape")
