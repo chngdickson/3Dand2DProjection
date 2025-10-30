@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from copy import deepcopy
 import matplotlib.pyplot as plt
+
 def rasterize_3dto2D(
     pointcloud, 
     mask_2d: torch.Tensor=None, 
@@ -10,7 +11,8 @@ def rasterize_3dto2D(
     max_xyz: tuple=None,  # (max_x, max_y, max_z)
     axis='z', 
     highest_first=True,
-    depth_weighting=True  
+    depth_weighting=True,
+    stepsize: float=None
 ):
     """
     Rasterize point cloud with explicit bounds and depth-based weighting.
@@ -39,7 +41,8 @@ def rasterize_3dto2D(
             max_xyz=max_xyz,
             axis=axis,
             highest_first=highest_first,
-            depth_weighting=depth_weighting
+            depth_weighting=depth_weighting,
+            stepsize=stepsize
         )
         return filtered_pointcloud.detach().cpu(), raster_image.detach().cpu().numpy(), raster_filtered_img.detach().cpu().numpy()
     elif isinstance(pointcloud, np.ndarray):
@@ -51,7 +54,8 @@ def rasterize_3dto2D(
             max_xyz=max_xyz,
             axis=axis,
             highest_first=highest_first,
-            depth_weighting=depth_weighting
+            depth_weighting=depth_weighting,
+            stepsize=stepsize
         )
         return filtered_pointcloud, raster_image, raster_filtered_img
     else:
@@ -65,7 +69,8 @@ def rasterize_3dto2D_torch(
     max_xyz: tuple=None,  # (max_x, max_y, max_z)
     axis='z', 
     highest_first=True,
-    depth_weighting=True
+    depth_weighting=True,
+    stepsize: float=None
 ):
     """
     Rasterize point cloud with explicit bounds and depth-based weighting.
@@ -91,12 +96,12 @@ def rasterize_3dto2D_torch(
     assert not(mask_2d is None and img_shape is None), "mask_2d or img_shape must be present for rasterization"
     device = pointcloud.device
     dtype = pointcloud.dtype
-    if mask_2d is not None:
-        H, W = mask_2d.shape
-        if isinstance(mask_2d,np.ndarray):
-            mask_2d = torch.tensor(mask_2d, dtype=torch.bool, device=device)
-    else:
-        H, W = img_shape
+    # if mask_2d is not None:
+    #     H, W = mask_2d.shape
+    #     if isinstance(mask_2d,np.ndarray):
+    #         mask_2d = torch.tensor(mask_2d, dtype=torch.bool, device=device)
+    # else:
+    #     H, W = img_shape
     
     xyz = pointcloud[:,:3]
     if axis == 'z':
@@ -118,6 +123,20 @@ def rasterize_3dto2D_torch(
         max_coord = torch.tensor([max_xyz[1], max_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     else:
         raise ValueError("axis must be 'x', 'y', or 'z'")
+
+    if stepsize is not None:
+        H = round((float(max_coord[0])-float(min_coord[0]))/stepsize)
+        W = round((float(max_coord[1])-float(min_coord[1]))/stepsize)
+        if mask_2d is not None:
+            if (H,W) != mask_2d.shape:
+                raise ValueError("Your stepsize H,W must be the same size as your masked shape")
+    else:
+        if mask_2d is not None:
+            H, W = mask_2d.shape
+            if isinstance(mask_2d,np.ndarray):
+                mask_2d = torch.tensor(mask_2d, dtype=torch.bool, device=device)
+        else:
+            H, W = img_shape
 
     # Normalize to [0, 1] 
     coords_normalized = (coords - min_coord) / (max_coord - min_coord + 1e-6)
@@ -191,13 +210,14 @@ def rasterize_3dto2D_torch(
 
 def rasterize_3dto2D_numpy(
     pointcloud, 
-    mask_2d: np.ndarray=None, 
+    mask_2d: np.ndarray=None,
     img_shape: tuple=None,
     min_xyz: tuple=None,  # (min_x, min_y, min_z)
     max_xyz: tuple=None,  # (max_x, max_y, max_z)
     axis='z', 
     highest_first=True,
-    depth_weighting=True
+    depth_weighting=True,
+    stepsize: float=None
 ):
     """
     Rasterize point cloud with explicit bounds and depth-based weighting.
@@ -221,11 +241,7 @@ def rasterize_3dto2D_numpy(
         raster_filtered_img: (H, W) binary of masked points | (H, W, 3) RGB image of masked points.
     """
     assert not(mask_2d is None and img_shape is None), "mask_2d or img_shape must be present for rasterization"
-    if mask_2d is not None:
-        H, W = mask_2d.shape
-    else:
-        H, W = img_shape
-    
+
     xyz = pointcloud[:,:3]
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
@@ -246,7 +262,19 @@ def rasterize_3dto2D_numpy(
         max_coord = np.array([max_xyz[1], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     else:
         raise ValueError("axis must be 'x', 'y', or 'z'")
-
+    
+    if stepsize is not None:
+        H = round((max_coord[0]-min_coord[0])/stepsize)
+        W = round((max_coord[1]-min_coord[1])/stepsize)
+        if mask_2d is not None:
+            if (H,W) != mask_2d.shape:
+                raise ValueError("Your stepsize H,W must be the same size as your masked shape")
+    else:
+        if mask_2d is not None:
+            H, W = mask_2d.shape
+        else:
+            H, W = img_shape
+    
     # Normalize to [0, 1] 
     coords_normalized = (coords - min_coord) / (max_coord - min_coord + 1e-6)
     norm_depth = (depth - depth.min()) / (depth.max() - depth.min() + 1e-6)
