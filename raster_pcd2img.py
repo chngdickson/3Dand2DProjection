@@ -60,7 +60,23 @@ def rasterize_3dto2D(
         return filtered_pointcloud, raster_image, raster_filtered_img
     else:
         assert NotImplementedError
-    
+
+def torch_lexsort(a, dim=-1):
+    """torch impl of np.lexsort() of less than 2 dims
+
+    Args:
+        a (torch): shape of [ndim, N]
+        dim (int):. Defaults to -1.
+
+    Returns:
+        indices of shape [N]
+    """
+    assert dim == -1, "Transpose if you want differently"
+    assert a.ndim == 2, "Not sure what is numpy behaviour with > 2 dim"
+    # To be consistent with numpy, we flip the keys (sort by last row first)
+    a_unq, inv = torch.unique(a.flip(0), dim=dim, sorted=True, return_inverse=True)
+    return torch.argsort(inv)
+     
 def rasterize_3dto2D_torch(
     pointcloud, 
     mask_2d: np.ndarray=None, 
@@ -108,20 +124,20 @@ def rasterize_3dto2D_torch(
         depth = pointcloud[:, 2]  # Z-axis for XY projection
         coords = xyz[:, :2]
         coords[:,1] = coords[:,1] * -1
-        min_coord = torch.tensor([min_xyz[0], min_xyz[1]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
-        max_coord = torch.tensor([max_xyz[0], max_xyz[1]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
+        min_coord = torch.tensor([min_xyz[0], -max_xyz[1]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
+        max_coord = torch.tensor([max_xyz[0], -min_xyz[1]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'y':
         depth = pointcloud[:, 1]  # Y-axis for XZ projection
         coords = xyz[:, [0, 2]]
         coords[:,1] = coords[:,1] * -1
-        min_coord = torch.tensor([min_xyz[0], min_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
-        max_coord = torch.tensor([max_xyz[0], max_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
+        min_coord = torch.tensor([min_xyz[0], -max_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
+        max_coord = torch.tensor([max_xyz[0], -min_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'x':
         depth = pointcloud[:, 0]  # X-axis for YZ projection
         coords = xyz[:, [1, 2]]
         coords[:,1] = coords[:,1] * -1
-        min_coord = torch.tensor([min_xyz[1], min_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
-        max_coord = torch.tensor([max_xyz[1], max_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
+        min_coord = torch.tensor([min_xyz[1], -max_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
+        max_coord = torch.tensor([max_xyz[1], -min_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     else:
         raise ValueError("axis must be 'x', 'y', or 'z'")
 
@@ -176,8 +192,13 @@ def rasterize_3dto2D_torch(
         norm_depth_valid_mask = norm_depth[valid_within_bounds_n_mask]
         
         # --- Vectorized occlusion handling within bounds---
-        # Sort by highest first        
-        _ ,unique_indices = torch.unique(v_valid * W + u_valid, return_inverse=True, return_counts=False, dim=0)
+        # Sort by highest first
+        
+        pixel_keys = v_valid * W + u_valid
+        pixel_keys = torch.stack([pixel_keys, -norm_depth_valid], dim=1)
+        # _, unique_indices = torch.unique(pixel_keys, dim=0, return_inverse=True, return_counts=False)
+        # _ ,unique_indices = torch.unique(v_valid * W + u_valid, return_inverse=True, return_counts=False, dim=0)
+        unique_indices = torch_lexsort(pixel_keys.T, dim=-1) # Expects [ ndim, N ]
         u_valid, v_valid = u_valid[unique_indices], v_valid[unique_indices]
         raster_image[v_valid, u_valid] = torch.tensor(
                 cmap(norm_depth_valid[unique_indices].detach().cpu().numpy())[:, :3]*255, dtype=torch.uint8, device=device
@@ -193,6 +214,7 @@ def rasterize_3dto2D_torch(
             raster_filtered_img[v_valid_mask, u_valid_mask] = torch.tensor(
                 cmap(norm_depth_valid_mask[unique_indices].detach().cpu().numpy())[:, :3] *255, dtype=torch.uint8, device=device
             )
+        del u_valid_mask, v_valid_mask, norm_depth_valid_mask, u_valid, v_valid, unique_indices
     else:
         # Binary version (original behavior)
         raster_image = torch.zeros((H, W), dtype=torch.bool, device=device)
@@ -203,8 +225,8 @@ def rasterize_3dto2D_torch(
         else:
             raster_filtered_img[v[valid_within_bounds_n_mask], u[valid_within_bounds_n_mask]] = True
     
-    del u_valid_mask, v_valid_mask, u_valid, v_valid, valid_within_bounds, valid_within_bounds_n_mask
-    del u, v, unique_indices, coords_normalized, norm_depth
+    del valid_within_bounds, valid_within_bounds_n_mask
+    del u, v, coords_normalized, norm_depth
     del depth, min_coord, max_coord, xyz, coords
     return filtered_pointcloud, raster_image, raster_filtered_img
 
@@ -247,21 +269,23 @@ def rasterize_3dto2D_numpy(
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
         coords = xyz[:, :2]
-        coords[:,1] = coords[:,1] * -1
-        min_coord = np.array([min_xyz[0], min_xyz[1]]) if min_xyz is not None else coords.min(axis=0)
-        max_coord = np.array([max_xyz[0], max_xyz[1]]) if max_xyz is not None else coords.max(axis=0)
+        coords[:,1] = coords[:,1] *-1
+        min_coord = np.array([min_xyz[0], -max_xyz[1]]) if min_xyz is not None else coords.min(axis=0)
+        max_coord = np.array([max_xyz[0], -min_xyz[1]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'y':
         depth = pointcloud[:, 1]  # Y-axis for XZ projection
         coords = xyz[:, [0, 2]]
         coords[:,1] = coords[:,1] * -1
-        min_coord = np.array([min_xyz[0], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
-        max_coord = np.array([max_xyz[0], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
+        min_coord = np.array([min_xyz[0], -max_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
+        max_coord = np.array([max_xyz[0], -min_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'x':
         depth = pointcloud[:, 0]  # X-axis for YZ projection
         coords = xyz[:, [1, 2]]
         coords[:,1] = coords[:,1]  * -1
-        min_coord = np.array([min_xyz[1], min_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
-        max_coord = np.array([max_xyz[1], max_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
+        # print("min_coord",coords.min(axis=0), [min_xyz[0],min_xyz[1], min_xyz[2]])
+        # print("max_coord",coords.max(axis=0), [max_xyz[0],max_xyz[1], max_xyz[2]])
+        min_coord = np.array([min_xyz[1], -max_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
+        max_coord = np.array([max_xyz[1], -min_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     else:
         raise ValueError("axis must be 'x', 'y', or 'z'")
     
@@ -276,6 +300,7 @@ def rasterize_3dto2D_numpy(
             H, W = mask_2d.shape
         else:
             H, W = img_shape
+
     
     # Normalize to [0, 1] 
     coords_normalized = (coords - min_coord) / (max_coord - min_coord + 1e-6)
