@@ -193,12 +193,9 @@ def rasterize_3dto2D_torch(
         
         # --- Vectorized occlusion handling within bounds---
         # Sort by highest first
-        
-        pixel_keys = v_valid * W + u_valid
-        pixel_keys = torch.stack([pixel_keys, -norm_depth_valid], dim=1)
-        # _, unique_indices = torch.unique(pixel_keys, dim=0, return_inverse=True, return_counts=False)
-        # _ ,unique_indices = torch.unique(v_valid * W + u_valid, return_inverse=True, return_counts=False, dim=0)
-        unique_indices = torch_lexsort(pixel_keys.T, dim=-1) # Expects [ ndim, N ]
+        pixel_keys = torch.stack([(v_valid * W + u_valid), -norm_depth_valid], dim=1)
+        # pixel_keys = torch.stack([pixel_keys, -norm_depth_valid], dim=1)
+        unique_indices = torch_lexsort(pixel_keys.T, dim=-1) 
         u_valid, v_valid = u_valid[unique_indices], v_valid[unique_indices]
         raster_image[v_valid, u_valid] = torch.tensor(
                 cmap(norm_depth_valid[unique_indices].detach().cpu().numpy())[:, :3]*255, dtype=torch.uint8, device=device
@@ -209,7 +206,9 @@ def rasterize_3dto2D_torch(
             raster_filtered_img = raster_image.clone()
         else:
             # Find the first occurence of each pixel
-            _, unique_indices = torch.unique(v_valid_mask * W + u_valid_mask, return_inverse=True, return_counts=False, dim=0)
+            pixel_keys = torch.stack([(v_valid_mask * W + u_valid_mask), -norm_depth_valid_mask], dim=1)
+            unique_indices = torch_lexsort(pixel_keys.T, dim=-1) 
+            # # _, unique_indices = torch.unique(v_valid_mask * W + u_valid_mask, return_inverse=True, return_counts=False, dim=0)
             u_valid_mask, v_valid_mask = u_valid_mask[unique_indices], v_valid_mask[unique_indices]
             raster_filtered_img[v_valid_mask, u_valid_mask] = torch.tensor(
                 cmap(norm_depth_valid_mask[unique_indices].detach().cpu().numpy())[:, :3] *255, dtype=torch.uint8, device=device
