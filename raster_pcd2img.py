@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from copy import copy, deepcopy
+from copy import deepcopy
 import matplotlib.pyplot as plt
 
 def rasterize_3dto2D(
@@ -122,19 +122,19 @@ def rasterize_3dto2D_torch(
     xyz = pointcloud[:,:3]
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
-        coords = copy(xyz[:, :2])
+        coords = deepcopy(xyz[:, :2])
         coords[:,1] = coords[:,1] * -1
         min_coord = torch.tensor([min_xyz[0], -max_xyz[1]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
         max_coord = torch.tensor([max_xyz[0], -min_xyz[1]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'y':
         depth = pointcloud[:, 1]  # Y-axis for XZ projection
-        coords = copy(xyz[:, [0, 2]])
+        coords = deepcopy(xyz[:, [0, 2]])
         coords[:,1] = coords[:,1] * -1
         min_coord = torch.tensor([min_xyz[0], -max_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
         max_coord = torch.tensor([max_xyz[0], -min_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
     elif axis == 'x':
         depth = pointcloud[:, 0]  # X-axis for YZ projection
-        coords = copy(xyz[:, [1, 2]])
+        coords = deepcopy(xyz[:, [1, 2]])
         coords[:,1] = coords[:,1] * -1
         min_coord = torch.tensor([min_xyz[1], -max_xyz[2]], device=device) if min_xyz is not None else coords.min(dim=0)[0]
         max_coord = torch.tensor([max_xyz[1], -min_xyz[2]], device=device) if max_xyz is not None else coords.max(dim=0)[0]
@@ -267,19 +267,19 @@ def rasterize_3dto2D_numpy(
     xyz = pointcloud[:,:3]
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
-        coords = copy(xyz[:, :2])
+        coords = deepcopy(xyz[:, :2])
         coords[:,1] = coords[:,1] *-1
         min_coord = np.array([min_xyz[0], -max_xyz[1]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[0], -min_xyz[1]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'y':
         depth = pointcloud[:, 1]  # Y-axis for XZ projection
-        coords = copy(xyz[:, [0, 2]])
+        coords = deepcopy(xyz[:, [0, 2]])
         coords[:,1] = coords[:,1] * -1
         min_coord = np.array([min_xyz[0], -max_xyz[2]]) if min_xyz is not None else coords.min(axis=0)
         max_coord = np.array([max_xyz[0], -min_xyz[2]]) if max_xyz is not None else coords.max(axis=0)
     elif axis == 'x':
         depth = pointcloud[:, 0]  # X-axis for YZ projection
-        coords = copy(xyz[:, [1, 2]])
+        coords = deepcopy(xyz[:, [1, 2]])
         coords[:,1] = coords[:,1]  * -1
         # print("min_coord",coords.min(axis=0), [min_xyz[0],min_xyz[1], min_xyz[2]])
         # print("max_coord",coords.max(axis=0), [max_xyz[0],max_xyz[1], max_xyz[2]])
