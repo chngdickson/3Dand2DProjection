@@ -265,7 +265,6 @@ def rasterize_3dto2D_numpy(
     assert not(mask_2d is None and img_shape is None and stepsize is None), "[mask_2d or img_shape or stepsize] must be present for rasterization"
 
     xyz = pointcloud[:,:3]
-    print()
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
         coords = deepcopy(xyz[:, :2])
