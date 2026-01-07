@@ -321,7 +321,6 @@ def rasterize_3dto2D_numpy(
         valid_within_bounds_n_mask[valid_within_bounds.nonzero()] = mask_2d[v[valid_within_bounds],u[valid_within_bounds]]
         valid_within_bounds_n_mask = valid_within_bounds_n_mask.nonzero()[0]
     
-    print("Is docker pulling this image?")
     filtered_pointcloud = pointcloud[valid_within_bounds_n_mask]
     # Apply depth weighting if enabled
     if depth_weighting:
