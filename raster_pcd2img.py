@@ -265,6 +265,7 @@ def rasterize_3dto2D_numpy(
     assert not(mask_2d is None and img_shape is None and stepsize is None), "[mask_2d or img_shape or stepsize] must be present for rasterization"
 
     xyz = pointcloud[:,:3]
+    print()
     if axis == 'z':
         depth = pointcloud[:, 2]  # Z-axis for XY projection
         coords = deepcopy(xyz[:, :2])
@@ -321,6 +322,7 @@ def rasterize_3dto2D_numpy(
         valid_within_bounds_n_mask[valid_within_bounds.nonzero()] = mask_2d[v[valid_within_bounds],u[valid_within_bounds]]
         valid_within_bounds_n_mask = valid_within_bounds_n_mask.nonzero()[0]
     
+    print("Is docker pulling this image?")
     filtered_pointcloud = pointcloud[valid_within_bounds_n_mask]
     # Apply depth weighting if enabled
     if depth_weighting:
